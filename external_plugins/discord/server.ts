@@ -865,6 +865,22 @@ async function handleInbound(msg: Message): Promise<void> {
   // forgeable by any allowlisted sender typing that string.
   const content = msg.content || (atts.length > 0 ? '(attachment)' : '')
 
+  // If this is a reply, include the referenced message for context.
+  let replyCtx: Record<string, string> = {}
+  if (msg.reference?.messageId) {
+    try {
+      const ref = await msg.fetchReference()
+      const refContent = ref.content?.slice(0, 500) || ''
+      if (refContent) {
+        replyCtx = {
+          reply_to_message_id: ref.id,
+          reply_to_user: ref.author.username,
+          reply_to_content: refContent,
+        }
+      }
+    } catch {}
+  }
+
   mcp.notification({
     method: 'notifications/claude/channel',
     params: {
@@ -876,6 +892,7 @@ async function handleInbound(msg: Message): Promise<void> {
         user_id: msg.author.id,
         ts: msg.createdAt.toISOString(),
         ...(atts.length > 0 ? { attachment_count: String(atts.length), attachments: atts.join('; ') } : {}),
+        ...replyCtx,
       },
     },
   }).catch(err => {
