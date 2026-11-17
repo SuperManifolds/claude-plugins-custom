@@ -32,7 +32,7 @@ import {
 import { randomBytes } from 'crypto'
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, statSync, renameSync, realpathSync, chmodSync } from 'fs'
 import { homedir } from 'os'
-import { join, sep } from 'path'
+import { dirname, join, sep } from 'path'
 
 const STATE_DIR = process.env.DISCORD_STATE_DIR ?? join(homedir(), '.claude', 'channels', 'discord')
 const ACCESS_FILE = join(STATE_DIR, 'access.json')
@@ -62,6 +62,21 @@ if (!TOKEN) {
   process.exit(1)
 }
 const INBOX_DIR = join(STATE_DIR, 'inbox')
+
+// Gateway liveness stamp for the agent's health-check: epoch seconds, written on gateway
+// activity (ready, shard ready/resume, each inbound message) and every 60 s while the client is
+// ready. A stale stamp with a live process means the bot lost its gateway. Set
+// DISCORD_GATEWAY_STAMP to an empty string to turn it off.
+const GATEWAY_STAMP = process.env.DISCORD_GATEWAY_STAMP ?? join(homedir(), '.claude', 'state', 'agent', 'discord-gateway.ts')
+function stampGateway(): void {
+  if (!GATEWAY_STAMP) return
+  try {
+    mkdirSync(dirname(GATEWAY_STAMP), { recursive: true })
+    const tmp = `${GATEWAY_STAMP}.${process.pid}.tmp`
+    writeFileSync(tmp, `${Math.floor(Date.now() / 1000)}\n`)
+    renameSync(tmp, GATEWAY_STAMP)
+  } catch {}
+}
 
 // Last-resort safety net — without these the process dies silently on any
 // unhandled promise rejection. With them it logs and keeps serving tools.
@@ -800,6 +815,7 @@ client.on('interactionCreate', async (interaction: Interaction) => {
 })
 
 client.on('messageCreate', msg => {
+  stampGateway()
   if (msg.author.bot) return
   handleInbound(msg).catch(e => process.stderr.write(`discord: handleInbound failed: ${e}\n`))
 })
@@ -902,7 +918,13 @@ async function handleInbound(msg: Message): Promise<void> {
 
 client.once('ready', c => {
   process.stderr.write(`discord channel: gateway connected as ${c.user.tag}\n`)
+  stampGateway()
 })
+client.on('shardReady', () => stampGateway())
+client.on('shardResume', () => stampGateway())
+setInterval(() => {
+  if (client.isReady()) stampGateway()
+}, 60_000).unref()
 
 client.login(TOKEN).catch(err => {
   process.stderr.write(`discord channel: login failed: ${err}\n`)
