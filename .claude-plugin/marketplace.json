@@ -429,6 +429,12 @@
       "homepage": "https://elixir-lsp.github.io/elixir-ls/"
     },
     {
+      "name": "events",
+      "description": "Scheduled-task channel: delivers task files from ~/.claude/state/agent/inbox to a long-running session and records claim/finish, so launchd jobs can hand work to it with a fallback.",
+      "category": "productivity",
+      "source": "./external_plugins/events"
+    },
+    {
       "name": "explanatory-output-style",
       "description": "Adds educational insights about implementation choices and codebase patterns (mimics the deprecated Explanatory output style)",
       "author": {

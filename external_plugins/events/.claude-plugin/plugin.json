@@ -1,0 +1,11 @@
+{
+  "name": "events",
+  "description": "Scheduled-task channel for Claude Code: delivers task files from ~/.claude/state/agent/inbox and records claim/finish, so launchd jobs can hand work to a long-running session with a fallback.",
+  "version": "0.1.0",
+  "keywords": [
+    "events",
+    "scheduler",
+    "channel",
+    "mcp"
+  ]
+}
