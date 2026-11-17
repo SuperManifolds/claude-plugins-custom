@@ -17,6 +17,7 @@
 //   kind        [a-z0-9-]{1,40}
 //   deadline    UTC "YYYY-MM-DDTHH:MM:SSZ" (finish deadline)
 //   prompt_ref  optional absolute path of an input file inside stateDir
+//   model_hint  optional worker model while the quota governor is frugal: sonnet | haiku
 import {
   appendFileSync, closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync,
   readFileSync, readSync, readdirSync, realpathSync, renameSync, statSync, unlinkSync,
@@ -32,9 +33,10 @@ export type Status = (typeof STATUSES)[number]
 const ID_RE = /^[A-Za-z0-9._-]{1,80}$/
 const KIND_RE = /^[a-z0-9-]{1,40}$/
 const TS_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/
-const KEYS = new Set(['task_id', 'kind', 'deadline', 'prompt_ref'])
+const KEYS = new Set(['task_id', 'kind', 'deadline', 'prompt_ref', 'model_hint'])
+const MODEL_HINTS = new Set(['sonnet', 'haiku'])
 
-export type Task = { task_id: string; kind: string; deadline: string; prompt_ref?: string }
+export type Task = { task_id: string; kind: string; deadline: string; prompt_ref?: string; model_hint?: string }
 export type Notice = { content: string; meta: Record<string, string> }
 export type RejectReason = 'owner' | 'size' | 'json' | 'schema' | 'type'
 
@@ -67,7 +69,7 @@ export function validateTask(raw: unknown, stateDir: string): Task | null {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return null
   const o = raw as Record<string, unknown>
   for (const k of Object.keys(o)) if (!KEYS.has(k)) return null
-  const { task_id, kind, deadline, prompt_ref } = o
+  const { task_id, kind, deadline, prompt_ref, model_hint } = o
   if (typeof task_id !== 'string' || !ID_RE.test(task_id) || task_id.startsWith('.')) return null
   if (typeof kind !== 'string' || !KIND_RE.test(kind)) return null
   if (typeof deadline !== 'string' || !TS_RE.test(deadline) || Number.isNaN(Date.parse(deadline))) return null
@@ -75,6 +77,10 @@ export function validateTask(raw: unknown, stateDir: string): Task | null {
   if (prompt_ref !== undefined) {
     if (typeof prompt_ref !== 'string' || !insideDir(prompt_ref, stateDir)) return null
     t.prompt_ref = prompt_ref
+  }
+  if (model_hint !== undefined) {
+    if (typeof model_hint !== 'string' || !MODEL_HINTS.has(model_hint)) return null
+    t.model_hint = model_hint
   }
   return t
 }
@@ -212,8 +218,10 @@ export class Queue {
       `Call claim("${t.task_id}") first. Then follow the "Scheduled tasks" rules in ~/agent/CLAUDE.md: task file ${taskFile}, artifact ${join(this.artifacts, `${t.task_id}.md`)}.`,
     ]
     if (t.prompt_ref) lines.push(`Input file: ${t.prompt_ref}`)
+    if (t.model_hint) lines.push(`Quota is frugal: run the worker on model ${t.model_hint}.`)
     const meta: Record<string, string> = { task_id: t.task_id, kind: t.kind, deadline: t.deadline, attempt: String(attempt) }
     if (t.prompt_ref) meta.prompt_ref = t.prompt_ref
+    if (t.model_hint) meta.model_hint = t.model_hint
     return { content: lines.join('\n'), meta }
   }
 
