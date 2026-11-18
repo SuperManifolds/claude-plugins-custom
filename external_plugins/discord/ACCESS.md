@@ -72,6 +72,15 @@ Example regex setup for a nickname trigger:
 /discord:access set mentionPatterns '["^hey claude\\b", "\\bassistant\\b"]'
 ```
 
+## Reactions and edits
+
+The same lists gate reactions and edits, without pairing: an unknown DM sender's reaction or edit is dropped, never answered with a code. Bots and the bot itself are always dropped.
+
+- **Reactions** are delivered only when they're on one of the bot's own messages. An `allowFrom` user's reaction always gets through, in a DM or an opted-in channel. Anyone else's (opted-in channel, group `allowFrom`) gets through only on bot messages from the last 24 h, rate-limited. `requireMention` doesn't apply: reacting to the bot's message addresses the bot, like a reply does.
+- **Edits** are delivered when the text changed on a message under 24 h old and the sender passes the message gate. In a `requireMention` channel the edited text must mention the bot, reply to it or match `mentionPatterns`.
+
+See the README's "Events delivered to the assistant" for the attributes.
+
 ## Delivery
 
 Configure outbound behavior with `/discord:access set <key> <value>`.
