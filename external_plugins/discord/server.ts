@@ -33,6 +33,7 @@ import { randomBytes } from 'crypto'
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, rmSync, statSync, renameSync, realpathSync, chmodSync } from 'fs'
 import { homedir } from 'os'
 import { dirname, join, sep } from 'path'
+import { ancestorArgs, channelMode, gatewayLive } from './gateway.ts'
 
 const STATE_DIR = process.env.DISCORD_STATE_DIR ?? join(homedir(), '.claude', 'channels', 'discord')
 const ACCESS_FILE = join(STATE_DIR, 'access.json')
@@ -64,12 +65,19 @@ if (!TOKEN) {
 const INBOX_DIR = join(STATE_DIR, 'inbox')
 
 // Gateway liveness stamp for the agent's health-check: epoch seconds, written on gateway
-// activity (ready, shard ready/resume, each inbound message) and every 60 s while the client is
-// ready. A stale stamp with a live process means the bot lost its gateway. Set
+// activity (ready, shard ready/resume, each inbound message) and every 60 s while every shard is
+// Ready with a recent heartbeat ack (gateway.ts: client.isReady() never turns false again in
+// discord.js 14.28.1). A stale stamp with a live process means the bot lost its gateway.
+// Written only when this process runs as a session's Discord channel (a `claude --channels
+// plugin:discord@...` ancestor), so another claude started in ~/agent can't keep it fresh. Set
 // DISCORD_GATEWAY_STAMP to an empty string to turn it off.
 const GATEWAY_STAMP = process.env.DISCORD_GATEWAY_STAMP ?? join(homedir(), '.claude', 'state', 'agent', 'discord-gateway.ts')
+const STAMP_ON = !!GATEWAY_STAMP && channelMode(ancestorArgs())
+if (GATEWAY_STAMP && !STAMP_ON) {
+  process.stderr.write('discord channel: not running as a --channels session; gateway stamp off\n')
+}
 function stampGateway(): void {
-  if (!GATEWAY_STAMP) return
+  if (!STAMP_ON) return
   try {
     mkdirSync(dirname(GATEWAY_STAMP), { recursive: true })
     const tmp = `${GATEWAY_STAMP}.${process.pid}.tmp`
@@ -923,7 +931,7 @@ client.once('ready', c => {
 client.on('shardReady', () => stampGateway())
 client.on('shardResume', () => stampGateway())
 setInterval(() => {
-  if (client.isReady()) stampGateway()
+  if (gatewayLive(client.ws.shards.values(), Date.now())) stampGateway()
 }, 60_000).unref()
 
 client.login(TOKEN).catch(err => {

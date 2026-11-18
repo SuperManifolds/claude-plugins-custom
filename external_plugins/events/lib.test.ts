@@ -163,6 +163,21 @@ describe('rejects', () => {
     expect(validateTask(task('p', { prompt_ref: join(dir, '..', 'x') }), dir)).toBeNull()
     expect(validateTask(task('p', { prompt_ref: 'relative/x' }), dir)).toBeNull()
   })
+  test('prompt_ref: a symlink inside the state dir that resolves outside it is refused', () => {
+    const out = realpathSync(mkdtempSync(join(tmpdir(), 'events-out-')))
+    try {
+      writeFileSync(join(out, 'secret.txt'), 'x')
+      symlinkSync(join(out, 'secret.txt'), join(dir, 'planted.json'))           // file link
+      symlinkSync(out, join(dir, 'linkdir'))                                     // dir link
+      writeFileSync(join(dir, 'real.json'), '{}')
+      symlinkSync(join(dir, 'real.json'), join(dir, 'alias.json'))              // stays inside
+      expect(validateTask(task('p', { prompt_ref: join(dir, 'planted.json') }), dir)).toBeNull()
+      expect(validateTask(task('p', { prompt_ref: join(dir, 'linkdir', 'secret.txt') }), dir)).toBeNull()
+      expect(validateTask(task('p', { prompt_ref: join(dir, 'alias.json') }), dir)).not.toBeNull()
+    } finally {
+      rmSync(out, { recursive: true, force: true })
+    }
+  })
   test('model_hint: only sonnet or haiku, and it reaches the notice', async () => {
     expect(validateTask(task('m', { model_hint: 'sonnet' }), dir)).toMatchObject({ model_hint: 'sonnet' })
     expect(validateTask(task('m', { model_hint: 'haiku' }), dir)).not.toBeNull()
@@ -234,6 +249,26 @@ describe('claim / finish / list', () => {
     expect(q.finish('t1', 'ok', join(q.artifacts, 'missing.md')).ok).toBe(false)
     expect(q.finish('t1', 'blocked').ok).toBe(true)
     expect(q.finish('nope', 'ok').ok).toBe(false)
+  })
+
+  test('finish: an artifact_path symlink that resolves outside artifacts/ is refused', () => {
+    const out = realpathSync(mkdtempSync(join(tmpdir(), 'events-out-')))
+    try {
+      const q = mkQueue()
+      drop(q, 't1')
+      q.claim('t1')
+      writeFileSync(join(out, 'elsewhere.md'), 'x')
+      symlinkSync(join(out, 'elsewhere.md'), join(q.artifacts, 't1.md'))
+      expect(q.finish('t1', 'ok', join(q.artifacts, 't1.md')).ok).toBe(false)
+      expect(existsSync(join(q.claimed, 't1.json'))).toBe(true)                 // still claimed
+      writeFileSync(join(q.artifacts, 'real.md'), 'result')
+      symlinkSync(join(q.artifacts, 'real.md'), join(q.artifacts, 'alias.md'))
+      expect(q.finish('t1', 'ok', join(q.artifacts, 'alias.md'))).toEqual({ ok: true })
+      const d = JSON.parse(readFileSync(join(q.done, 't1.json'), 'utf8'))
+      expect(d.artifact_path).toBe(join(q.artifacts, 'real.md'))                // recorded resolved
+    } finally {
+      rmSync(out, { recursive: true, force: true })
+    }
   })
 
   test('list shows inbox and claimed tasks, fields only', () => {
